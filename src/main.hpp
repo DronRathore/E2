@@ -22,10 +22,6 @@ namespace E2{
 		EventCallbackHandle callback;
 		std::map<std::string, Handle> *data;
 	}EventData;
-	typedef struct event{
-		std::string *name;
-		EventCallbackHandle callback;
-	} Event;
 	class EventQueue{
 		private:
 			// std::thread current_proc;
