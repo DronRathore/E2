@@ -76,6 +76,6 @@ void E2::startThread(EventQueue *e){
 			e->lock.unlock();
 		}
 		e->getLock()->unlock();
-		std::this_thread::sleep_for(std::chrono::nanoseconds(100));
+		std::this_thread::sleep_for(std::chrono::nanoseconds(10));
 	}
 }
