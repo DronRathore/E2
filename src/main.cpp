@@ -71,9 +71,7 @@ void E2::startThread(EventQueue *e){
 			// we have a new entry
 			auto event = e->events[0];
 			event->callback(event, event->data);
-			e->lock.lock();
 			e->events.erase(e->events.begin());
-			e->lock.unlock();
 		}
 		e->getLock()->unlock();
 		std::this_thread::sleep_for(std::chrono::nanoseconds(10));
