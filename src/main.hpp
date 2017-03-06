@@ -26,9 +26,10 @@ namespace E2{
 		private:
 			// std::thread current_proc;
 			std::thread *thread;
+			std::mutex lock;
 		public:
 			std::vector<EventData*> events;
-			std::mutex lock;
+
 			EventQueue();
 			void push(EventData* e);
 			std::mutex* getLock();
