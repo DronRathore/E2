@@ -11,7 +11,7 @@ int main(int argc, char* argv[]){
   man = new E2::EventMan();
   man->Listen("push", &listener);
   man->Trigger("push", nil); // 2nd argument is for data
-  Handle *data = new int(0x0fff);
+  Handle *data = (Handle *)new int(0x0fff);
   man->Trigger("push", data)
   // call all fs/net and other threads before this
   // this is the end marker which will block the code
