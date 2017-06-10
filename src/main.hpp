@@ -78,12 +78,15 @@ namespace E2{
       EventsMap event_map;
       Handle initQueue();
       EventQueue *event_queue;
+      bool _isAlive;
+      std::mutex self;
     public:
       EventMan();
       void Listen(std::string event_name, EventCallbackHandle listener);
       int Trigger(std::string event_name, Handle *data);
       void Exit();
       void Join();
+      bool isAlive();
       ~EventMan();
   };
   // Callback Return type

@@ -15,6 +15,7 @@ EventMan::EventMan(){
 
 Handle EventMan::initQueue(){
   this->event_queue = new EventQueue();
+  this->_isAlive = true;
   return nil;
 }
 
@@ -23,6 +24,7 @@ void EventMan::Join(){
 }
 
 void EventMan::Listen(std::string event_name, EventCallbackHandle listener){
+  this->self.lock();
   auto hasEvent = this->event_map[event_name];
   if (hasEvent == nil){
     /* event doesn't exists */
@@ -30,11 +32,19 @@ void EventMan::Listen(std::string event_name, EventCallbackHandle listener){
     this->event_map[event_name] = vec;
   }
   this->event_map[event_name]->push_back(listener);
+  this->self.unlock();
 }
 
 int EventMan::Trigger(std::string event_name, Handle *data){
+  /* do not trigger if exited */
+  this->self.lock();
+  if (!this->_isAlive){
+    this->self.unlock();
+    return 0;
+  }
   if (this->event_map[event_name] == nil){
     this->event_map.erase(event_name);
+    this->self.unlock();
     return 0;
   }
   auto listeners = *(this->event_map[event_name]);
@@ -45,14 +55,25 @@ int EventMan::Trigger(std::string event_name, Handle *data){
     e->data = data;
     this->event_queue->push(e);
   }
+  this->self.unlock();
   return this->event_map[event_name]->size();
 }
 
+bool EventMan::isAlive(){
+  this->self.lock();
+  bool _isAlive = this->_isAlive;
+  this->self.unlock();
+  return _isAlive;
+}
+
 void EventMan::Exit(){
+  this->self.lock();
+  this->_isAlive = false;
   if (!this->event_queue->isClosed()){
     delete this->event_queue;
     this->event_queue = nil;
   }
+  this->self.unlock();
 }
 EventMan::~EventMan(){
   if (this->event_queue != nil){
@@ -90,7 +111,9 @@ std::mutex* EventQueue::getLock(){
 }
 
 EventQueue::~EventQueue(){
-  this->lock.unlock();
+  if (this->isClosed()){
+    return;
+  }
   this->lock.lock();
   EventData *ptr;
   auto size = this->events.size();

@@ -19,6 +19,8 @@ int main(int argc, char* argv[]){
 
   /* Exit method suspends the existing event queue thread
     flushes all the events and event datas that are queued
+    event-man instance becomes useless after the exit call and
+    will throw error
 
     man->Exit();
     delete man;
@@ -39,6 +41,12 @@ Handle listener(Handle event, Handle data){
 }
 ```
 ## API
+```c++ 
+bool EventMan.isAlive()
+```
+Returns the current state of the event queue, if false than the queue will throw error for any operation
+
+
 ```c++ 
 void EventMan.Push(string name, &handler)
 ```

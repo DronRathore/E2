@@ -13,16 +13,17 @@ int main(int argc, char* argv[]){
   man->Trigger("push", (Handle *)data);
   man->Trigger("push", nil);
   man->Trigger("push", nil);
-  /* If event is not present then its a noop() */
+  /* If event is not present then its a noop */
   man->Trigger("lol", nil);
   // call all fs/net and other threads before this
   // this is the end marker which will block the code
-  // man->Join();
+  man->Exit();
+  if (man->isAlive())
+    man->Join();
   /* Exit method suspends the existing event queue thread
     flushes all the events and event datas that are queued
 
     man->Exit();
-    delete man;
   */
   return 0;
 }
