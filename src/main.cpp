@@ -9,21 +9,21 @@
 using namespace E2;
 using namespace std;
 
-EventMan::EventMan(){
+Loop::Loop(){
   this->initQueue();
 }
 
-Handle EventMan::initQueue(){
+Handle Loop::initQueue(){
   this->event_queue = new EventQueue();
   this->_isAlive = true;
   return nil;
 }
 
-void EventMan::Join(){
+void Loop::Join(){
   this->event_queue->join();
 }
 
-void EventMan::Listen(std::string event_name, EventCallbackHandle listener){
+void Loop::Listen(std::string event_name, EventCallbackHandle listener){
   this->self.lock();
   auto hasEvent = this->event_map[event_name];
   if (hasEvent == nil){
@@ -35,7 +35,7 @@ void EventMan::Listen(std::string event_name, EventCallbackHandle listener){
   this->self.unlock();
 }
 
-void EventMan::Listen(std::string event_name, E2::EventHandler *instance){
+void Loop::Listen(std::string event_name, E2::EventHandler *instance){
   this->self.lock();
   auto hasEvent = this->instance_map[event_name];
   if (hasEvent == nil){
@@ -47,7 +47,7 @@ void EventMan::Listen(std::string event_name, E2::EventHandler *instance){
   this->self.unlock();
 }
 
-int EventMan::Trigger(std::string event_name, Handle *data){
+int Loop::Trigger(std::string event_name, Handle *data){
   /* do not trigger if exited */
   this->self.lock();
   if (!this->_isAlive){
@@ -65,7 +65,7 @@ int EventMan::Trigger(std::string event_name, Handle *data){
   return count;
 }
 
-void EventMan::Unregister(std::string event_name){
+void Loop::Unregister(std::string event_name){
   this->self.lock();
   ClearEvent(event, event_name)
   ClearEvent(instance, event_name)
@@ -73,21 +73,21 @@ void EventMan::Unregister(std::string event_name){
 }
 
 /* Unregister from events_map of static functions */
-void EventMan::Unregister(std::string event_name, EventCallbackHandle handle){
+void Loop::Unregister(std::string event_name, EventCallbackHandle handle){
   this->self.lock();
   ClearListener(event, event_name, handle)
   this->self.unlock();
 }
 
 /* Unregister from instance_map */
-void EventMan::Unregister(std::string event_name, EventHandler* handle){
+void Loop::Unregister(std::string event_name, EventHandler* handle){
   this->self.lock();
   ClearListener(instance, event_name, handle)
   this->self.unlock();
 }
 
 /* Unregister all the listeners */
-void EventMan::UnregisterAll(){
+void Loop::UnregisterAll(){
   this->self.lock();
   auto event_itr = this->event_map.begin();
   for(;event_itr != this->event_map.end(); ++event_itr){
@@ -101,7 +101,7 @@ void EventMan::UnregisterAll(){
 }
 
 /* Blocks any new event trigger */
-void EventMan::Freeze(){
+void Loop::Freeze(){
   this->self.lock();
   if (this->_isAlive == true){
     this->_isAlive = false;
@@ -110,7 +110,7 @@ void EventMan::Freeze(){
 }
 
 /* Unfreeze a frozen event queue */
-bool EventMan::Unfreeze(){
+bool Loop::Unfreeze(){
   bool done = false;
   this->self.lock();
   if (this->event_queue->isClosed()){
@@ -121,14 +121,14 @@ bool EventMan::Unfreeze(){
   return done;
 }
 
-bool EventMan::isAlive(){
+bool Loop::isAlive(){
   this->self.lock();
   bool _isAlive = this->_isAlive;
   this->self.unlock();
   return _isAlive;
 }
 
-void EventMan::Exit(){
+void Loop::Exit(){
   this->self.lock();
   this->_isAlive = false;
   if (!this->event_queue->isClosed()){
@@ -138,7 +138,7 @@ void EventMan::Exit(){
   this->self.unlock();
 }
 
-EventMan::~EventMan(){
+Loop::~Loop(){
   if (this->event_queue != nil){
     delete this->event_queue;
   }
