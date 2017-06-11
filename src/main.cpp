@@ -35,6 +35,18 @@ void EventMan::Listen(std::string event_name, EventCallbackHandle listener){
   this->self.unlock();
 }
 
+void EventMan::Listen(std::string event_name, E2::EventHandler *instance){
+  this->self.lock();
+  auto hasEvent = this->instance_map[event_name];
+  if (hasEvent == nil){
+    /* event doesn't exists */
+    std::vector<E2::EventHandler*> *vec = new std::vector<E2::EventHandler*>();
+    this->instance_map[event_name] = vec;
+  }
+  this->instance_map[event_name]->push_back(instance);
+  this->self.unlock();
+}
+
 int EventMan::Trigger(std::string event_name, Handle *data){
   /* do not trigger if exited */
   this->self.lock();
@@ -42,21 +54,71 @@ int EventMan::Trigger(std::string event_name, Handle *data){
     this->self.unlock();
     return 0;
   }
-  if (this->event_map[event_name] == nil){
-    this->event_map.erase(event_name);
-    this->self.unlock();
-    return 0;
+  ReturnIfNoListeners(event, instance, event_name)
+  
+  int count = 0;
+  /* trigger all the function handler */
+  TriggerListeners(event, event_name, callback)
+  /* trigger all instance handler */
+  TriggerListeners(instance, event_name, instance)
+  this->self.unlock();
+  return count;
+}
+
+void EventMan::Unregister(std::string event_name){
+  this->self.lock();
+  ClearEvent(event, event_name)
+  ClearEvent(instance, event_name)
+  this->self.unlock();
+}
+
+/* Unregister from events_map of static functions */
+void EventMan::Unregister(std::string event_name, EventCallbackHandle handle){
+  this->self.lock();
+  ClearListener(event, event_name, handle)
+  this->self.unlock();
+}
+
+/* Unregister from instance_map */
+void EventMan::Unregister(std::string event_name, EventHandler* handle){
+  this->self.lock();
+  ClearListener(instance, event_name, handle)
+  this->self.unlock();
+}
+
+/* Unregister all the listeners */
+void EventMan::UnregisterAll(){
+  this->self.lock();
+  auto event_itr = this->event_map.begin();
+  for(;event_itr != this->event_map.end(); ++event_itr){
+    ClearEvent(event, event_itr->first)
   }
-  auto listeners = *(this->event_map[event_name]);
-  for(auto el : listeners){
-    auto e = new EventData();
-    e->name = new std::string(event_name);
-    e->callback = el;
-    e->data = data;
-    this->event_queue->push(e);
+  auto instance_itr = this->instance_map.begin();
+  for(;instance_itr != this->instance_map.end(); ++instance_itr){
+    ClearEvent(instance, instance_itr->first)
   }
   this->self.unlock();
-  return this->event_map[event_name]->size();
+}
+
+/* Blocks any new event trigger */
+void EventMan::Freeze(){
+  this->self.lock();
+  if (this->_isAlive == true){
+    this->_isAlive = false;
+  }
+  this->self.unlock();
+}
+
+/* Unfreeze a frozen event queue */
+bool EventMan::Unfreeze(){
+  bool done = false;
+  this->self.lock();
+  if (this->event_queue->isClosed()){
+    this->_isAlive = true;
+    done = true;
+  }
+  this->self.unlock();
+  return done;
 }
 
 bool EventMan::isAlive(){
@@ -75,6 +137,7 @@ void EventMan::Exit(){
   }
   this->self.unlock();
 }
+
 EventMan::~EventMan(){
   if (this->event_queue != nil){
     delete this->event_queue;
@@ -103,6 +166,7 @@ void EventQueue::push(EventData *e){
   this->events.push_back(e);
   this->lock.unlock();
 }
+
 void EventQueue::join(){
   this->thread->join();
 }
@@ -153,6 +217,7 @@ void E2::startThread(EventQueue *e, std::mutex *closeFlag, int *exitFlag){
     if ((*exitFlag) == 1){
       *exitFlag = THREAD_EXITED;
       e->getLock()->unlock();
+      closeFlag->unlock();
       break;
     }
     closeFlag->unlock();
@@ -160,7 +225,13 @@ void E2::startThread(EventQueue *e, std::mutex *closeFlag, int *exitFlag){
     if (!e->events.empty()){
       /* we have a new entry */
       auto event = e->events[0];
-      event->callback(event, event->data);
+      /* a function handler */
+      if (event->instance == nil){
+        event->callback(event, event->data);
+      } else {
+        /* a EventHandler class handler */
+        event->instance->HandleEvent(event, event->data);
+      }
       e->events.erase(e->events.begin());
     }
     e->getLock()->unlock();

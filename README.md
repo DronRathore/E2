@@ -5,14 +5,39 @@ Create as many event loops you want, pass the loops to different network/fs/time
 using namespace std;
 using namespace E2;
 Handle listener(Handle, Handle);
+class FsWrap : public E2::EventHandler {
+  public:
+    void HandleEvent(Handle event, Handle data){
+      /* Trigger the events as they appear */
+      E2::EventData *instance = (E2::EventData *)event;
+      /* switch(instance->name) {case "end": break;} */
+      cout << "File Event: " << *(instance->name) << endl;
+      clear_e2_event(instance)
+    }
 
+    ~FsWrap(){
+
+    }
+};
 int main(int argc, char* argv[]){
   E2::EventMan *man; // you can share this instance with other threads
   man = new E2::EventMan();
+  /* an object of derived class from EventHandler */
+  auto fsObject = new FsWrap();
+
   man->Listen("push", &listener);
+  man->Listen("push", fsObject); /* instance can listen too */
+
   man->Trigger("push", nil); // 2nd argument is for data
-  Handle *data = new int(0x0fff);
-  man->Trigger("push", data)
+  
+  Handle *data = (Handle *)new int(0x0fff);
+  man->Freeze(); /* no trigger statement after this won't work */
+  
+  man->Trigger("push", data); /* won't work */
+  
+  man->Unfreeze(); /* triggers after this will work */
+
+  man->Trigger("push", data); /* will work now */
   // call all fs/net and other threads before this
   // this is the end marker which will block the code
   // you can create more EventMan and then wait for all of them
@@ -46,21 +71,51 @@ bool EventMan.isAlive()
 ```
 Returns the current state of the event queue, if false than the queue will throw error for any operation
 
+```c++ 
+bool EventMan.Freeze()
+```
+Freezes the event loop, all trigger calls will be ignored
+
+```c++ 
+bool EventMan.Unfreeze()
+```
+Unfreeze the event loop, event trigger will resume from the point this function is called
+
 
 ```c++ 
 void EventMan.Push(string name, &handler)
 ```
 
-Pushes a new event handler for an event, the handler parameter is a function pointer which should be of the below signature 
+Pushes a new event handler for an event, the handler parameter is a function pointer which can be of the below signature 
 ```c++
 Handle func_name(Handle, Handle)
 ```
-
+__Or an instance of any derived class from EventHandler__
+```c++
+class MyClass:public EventHandler{}
+```
 
 ```c++
 int EventMan.Trigger(string name, Handle data)
 ```
 Triggers all the event listeners of a specific event and passes the data to the handlers, if no such event exists than its a noop(). The function returns the number of listeners triggered
+
+
+```c++ 
+bool EventMan.Unregister(string event_name)
+```
+Unregister all the event handlers for a given event_name
+
+
+```c++ 
+bool EventMan.Unregister(string event_name, function listener)
+```
+Unregister a given listener for an event
+
+```c++ 
+bool EventMan.Unregister(string event_name, EventHandler *instance)
+```
+Unregister a given EventHandler class instance for a given event
 
 
 ```c++ 
@@ -76,6 +131,23 @@ void EventMan.Exit(void)
 Kills the Spinlock thread. Call ```delete EventMan;``` manually after this to free its memory. You can use this to trigger the end of event loop manually.
 
 ### Listeners Helpers
+```c++
+  class EventHandler
+```
+You can extend the abstract EventHandler class to create your own event handling class that can be attached as an event listener.
+The ```EventHandler``` class has following methods that needs to be overriden
+
+```c++
+  virtual void HandleEvent(Handle event, Handle data)
+```
+This function after overriden will be triggered for any event the instance is attached to, you can the event name from event structure.
+
+```c++
+  ~EventHandler()
+```
+You need to have a destructor of your class.
+
+
 The library by default doesn't clear the parameters passed to the listeners, its upto the users to clear the memory.
 ```c++
 clear_e2_event(event)
