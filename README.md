@@ -11,7 +11,7 @@ int main(int argc, char* argv[]){
   man = new E2::EventMan();
   man->Listen("push", &listener);
   man->Trigger("push", nil); // 2nd argument is for data
-  Handle *data = new int(0x0fff);
+  Handle *data = (Handle *)new int(0x0fff);
   man->Trigger("push", data)
   // call all fs/net and other threads before this
   // this is the end marker which will block the code
@@ -19,6 +19,8 @@ int main(int argc, char* argv[]){
 
   /* Exit method suspends the existing event queue thread
     flushes all the events and event datas that are queued
+    event-man instance becomes useless after the exit call and
+    will throw error
 
     man->Exit();
     delete man;
@@ -39,6 +41,12 @@ Handle listener(Handle event, Handle data){
 }
 ```
 ## API
+```c++ 
+bool EventMan.isAlive()
+```
+Returns the current state of the event queue, if false than the queue will throw error for any operation
+
+
 ```c++ 
 void EventMan.Push(string name, &handler)
 ```
