@@ -46,11 +46,11 @@ int main(int argc, char* argv[]){
   auto FsQueue = new E2::Loop();
   auto fsObject = new FsWrap();
   /* todo: Add thread pool */
-  /* Till then you can namespace events with inode values */
-  /* or fd in case of net connection */
-  FsQueue->Listen("onstart", fsObject);
+  /* a generic to help extend the functionalities of an EventHandler*/
+  FsQueue->Trigger<FsWrap*>(fsObject, "onstart", nil);
   /* you can have functions as well as EventHandler classes */
   /* listening on the same event */
+  FsQueue->Listen<FsWrap*>("onstart", fsObject);
   FsQueue->Listen("onstart", &listener);
   FsQueue->Trigger("onstart", nil);
   /* Exit method suspends the existing event queue thread
@@ -62,10 +62,12 @@ int main(int argc, char* argv[]){
   int *sample = new int(0xfAAAAA);
   /* None will be triggered */
   FsQueue->Trigger("onstart", (Handle*)sample);
-  FsQueue->Join();
+  FsQueue->Exit();
   event_loop->Exit();
   if (event_loop->isAlive())
     event_loop->Join();
+  delete FsQueue;
+  delete event_loop;
   return 0;
 }
 

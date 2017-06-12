@@ -4,6 +4,7 @@
 
 #include <iostream>
 #include <thread>
+#include <algorithm>
 #include <chrono>
 #include "main.hpp"
 using namespace E2;
@@ -25,24 +26,14 @@ void Loop::Join(){
 
 void Loop::Listen(std::string event_name, EventCallbackHandle listener){
   this->self.lock();
-  auto hasEvent = this->event_map[event_name];
-  if (hasEvent == nil){
-    /* event doesn't exists */
-    std::vector<EventCallbackHandle> *vec = new std::vector<EventCallbackHandle>();
-    this->event_map[event_name] = vec;
-  }
+  ListenCodeStub(event, event_name, EventCallbackHandle)
   this->event_map[event_name]->push_back(listener);
   this->self.unlock();
 }
 
 void Loop::Listen(std::string event_name, E2::EventHandler *instance){
   this->self.lock();
-  auto hasEvent = this->instance_map[event_name];
-  if (hasEvent == nil){
-    /* event doesn't exists */
-    std::vector<E2::EventHandler*> *vec = new std::vector<E2::EventHandler*>();
-    this->instance_map[event_name] = vec;
-  }
+  ListenCodeStub(instance, event_name, EventHandler*)
   this->instance_map[event_name]->push_back(instance);
   this->self.unlock();
 }
@@ -143,6 +134,11 @@ Loop::~Loop(){
     delete this->event_queue;
   }
   if (this->event_map.empty() == false){
+    auto iterator = this->event_map.begin();
+    do {
+      delete iterator->second;
+      ++iterator;
+    } while(iterator != this->event_map.end());
     this->event_map.clear();
   }
 }
