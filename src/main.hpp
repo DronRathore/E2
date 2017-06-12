@@ -6,8 +6,8 @@
 #include <list>
 #include <thread>
 
-#ifndef E2_MAIN_H_
-#define E2_MAIN_H_
+#ifndef E2_LOOP_H_
+#define E2_LOOP_H_
 
 #ifndef nil
   #define nil NULL
@@ -131,7 +131,7 @@ namespace E2{
       bool isClosed();
       ~EventQueue();
   };
-  class EventMan{
+  class Loop{
     private:
       EventsMap event_map;
       HandlerInstance instance_map;
@@ -140,7 +140,7 @@ namespace E2{
       bool _isAlive;
       std::mutex self;
     public:
-      EventMan();
+      Loop();
       void Listen(std::string event_name, EventCallbackHandle listener);
       void Listen(std::string event_name, EventHandler *instance);
       int Trigger(std::string event_name, Handle *data);
@@ -153,7 +153,7 @@ namespace E2{
       void Freeze();
       bool Unfreeze();
       bool isAlive();
-      ~EventMan();
+      ~Loop();
   };
   // Callback Return type
   typedef struct cr{
@@ -162,4 +162,4 @@ namespace E2{
   }CallbackReturn;
   void startThread(EventQueue*, std::mutex*, int*);
 }
-#endif /* E2_MAIN_H_ */
+#endif /* E2_LOOP_H_ */

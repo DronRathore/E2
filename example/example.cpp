@@ -31,19 +31,19 @@ class FsWrap : public E2::EventHandler {
 };
 
 int main(int argc, char* argv[]){
-  E2::EventMan *man; /* you can share this instance with other threads */
-  man = new E2::EventMan();
-  man->Listen("push", &listener);
+  E2::Loop *event_loop; /* you can share this instance with other threads */
+  event_loop = new E2::Loop();
+  event_loop->Listen("push", &listener);
   
   Handle* data = (Handle*)new int(123);
-  man->Trigger("push", data);
-  man->Trigger("push", nil);
-  man->Trigger("push", nil);
+  event_loop->Trigger("push", data);
+  event_loop->Trigger("push", nil);
+  event_loop->Trigger("push", nil);
   /* If event is not present then its a noop */
-  man->Trigger("lol", nil);
+  event_loop->Trigger("lol", nil);
   // call all fs/net and other threads before this
   // this is the end marker which will block the code
-  auto FsQueue = new E2::EventMan();
+  auto FsQueue = new E2::Loop();
   auto fsObject = new FsWrap();
   /* todo: Add thread pool */
   /* Till then you can namespace events with inode values */
@@ -56,16 +56,16 @@ int main(int argc, char* argv[]){
   /* Exit method suspends the existing event queue thread
     flushes all the events and event datas that are queued
 
-    man->Exit();
+    event_loop->Exit();
   */
   FsQueue->Unregister("onstart");
   int *sample = new int(0xfAAAAA);
   /* None will be triggered */
   FsQueue->Trigger("onstart", (Handle*)sample);
   FsQueue->Join();
-  man->Exit();
-  if (man->isAlive())
-    man->Join();
+  event_loop->Exit();
+  if (event_loop->isAlive())
+    event_loop->Join();
   return 0;
 }
 
