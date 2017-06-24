@@ -2,6 +2,8 @@
 Create as many event loops you want, pass the loops to different network/fs/timer interrupt locked threads.
 ```c++
 #include "src/main.hpp"
+#include "src/console.hpp"
+
 using namespace std;
 using namespace E2;
 Handle listener(Handle, Handle);
@@ -11,8 +13,9 @@ class FsWrap : public E2::EventHandler {
       /* Trigger the events as they appear */
       E2::EventData *instance = (E2::EventData *)event;
       /* switch(instance->name) {case "end": break;} */
-      cout << "File Event: " << *(instance->name) << endl;
-      clear_e2_event(instance)
+      /* a helper stdio for sync std */
+      E2::log("File Event: ", *(instance->name));
+      clear_e2_event(instance, int) // second argument is type of data
     }
 
     ~FsWrap(){
@@ -47,7 +50,7 @@ int main(int argc, char* argv[]){
     event-man instance becomes useless after the exit call and
     will throw error
 
-    man->Exit();
+    man->StopSync();
     delete man;
   */
   man->Join();
@@ -56,10 +59,10 @@ int main(int argc, char* argv[]){
 
 Handle listener(Handle event, Handle data){
   E2::EventData *e = (E2::EventData *)event;
-  cout << "Event Triggered" << std::endl;
-  cout << "Event name=> " << *(e->name) << std::endl;
+  E2::log("Event Triggered");
+  E2::log("Event name=> ", *(e->name));
   if (data != nil){
-    cout << "The passed integer is: " << *((int*)data);
+    E2::log("The passed integer is: ", *((int*)data));
   }
   clear_e2_event(e); // a helper to clear event data
   return nil;
@@ -98,8 +101,14 @@ class MyClass:public EventHandler{}
 ```c++
 int Loop.Trigger(string name, Handle data)
 ```
-Triggers all the event listeners of a specific event and passes the data to the handlers, if no such event exists than its a noop(). The function returns the number of listeners triggered
+Triggers all the event listeners of a specific event and passes the data to the handlers, if no such event exists than its a ```noop()```, the function returns the number of listeners triggered
 
+__Note__: The data passed is converted into shared_ptr and will be deleted after the last listener is executed
+So only pass a copy of whatever you are passing, this is done to make sure there aren't any memory leaks left
+
+__Note__: The ```Unregister*``` functions can have inadverent results, please use with caution, for instance the
+Class listener objects will be cleared out of the memory when Unregister is triggered and that might crash
+ongoing event handlers in pipe or passed refs manipulation of it
 
 ```c++ 
 bool Loop.Unregister(string event_name)
@@ -124,11 +133,17 @@ void Loop.Join(void)
 
 Locks the Spinlock thread and waits for its completion.
 
-
-```c++ 
-void Loop.Exit(void)
+```c++
+void StopSync(void)
 ```
-Kills the Spinlock thread. Call ```delete Loop;``` manually after this to free its memory. You can use this to trigger the end of event loop manually.
+A thread safe way to stop an ongoing thread, this function call is blocking
+
+```c++
+void Stop()
+```
+An interrupt singal way to stop a loop, thread will exit after consuming the queue in complete and will become defunct
+
+__Note__: Call ```delete Loop;``` manually after stopping the loops to free its memory.
 
 ### Listeners Helpers
 ```c++
@@ -149,33 +164,18 @@ You need to have a destructor of your class.
 
 
 The library by default doesn't clear the parameters passed to the listeners, its upto the users to clear the memory.
+
 ```c++
-clear_e2_event(event)
+clear_e2_event(event, <value_type>)
 ```
+Use this to clear the complete event struct passed to your event listener. ```value_type``` is the pointer type of the data that has been passed, helps clear the data properly.
 
-Use this to clear the complete event struct passed to your event listener.
-```c++
-Handle file_read_listener(Handle event, Handle data) {
-  E2::EventData *eData = (E2::EventData*)event;
-  /* do something with eData and data */
-  clear_e2_event(e)
-}
-```
-
-```c++ 
-clear_e2_event_name(event)
-```
-
-Use this to clear the std::string event name if you are going to use the data pointer, this is not done by the library automatically
 ```c++
 Handle file_read_listener(Handle event, Handle data) {
   E2::EventData *eData = (E2::EventData*)event;
   /* do something with eData and data */
-  clear_e2_event_name(e)
+  clear_e2_event(e, std::string)
 }
 ```
-
-__Note__: Call atleast one helper from the above to clear unused memory.
-
 ## ToDo
 - Provide ```net/fs/time``` library helpers

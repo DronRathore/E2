@@ -5,95 +5,23 @@
 #include <vector>
 #include <list>
 #include <thread>
+#include <mutex>
+#include "stub.hpp"
 
 #ifndef E2_LOOP_H_
 #define E2_LOOP_H_
-
-#ifndef nil
-  #define nil NULL
-#endif
+#define THREAD_EXITED 0x2
+#define BLOCK_AND_EXIT 0x03
 
 #ifndef MAX_THREADS
   #define MAX_THREADS 5
 #endif
 
-#ifndef THREAD_EXITED
-  #define THREAD_EXITED 0x2
+#ifndef nil
+  #define nil NULL
 #endif
 
-/* delete std::string instance of event name */
-#ifndef clear_e2_event_name
-  #define clear_e2_event_name(event) \
-            if (event->name != nil)  \
-              delete event->name;
-#endif
-/* delete struct event */
-#ifndef clear_e2_event_obj
-  #define clear_e2_event_obj(event) \
-            if (event != nil)       \
-              delete event;
-#endif
-
-/* completley delete the event object */
-#ifndef clear_e2_event
-  #define clear_e2_event(event)      \
-          if (event != nil){         \
-            if (event->name != NULL) \
-              delete event->name;    \
-            if (event->data != nil)  \
-              delete event->data;    \
-            delete event;            \
-          }
-#endif
-
-#ifndef ReturnIfNoListeners
-  #define ReturnIfNoListeners(type1, type2, name)                           \
-    if (this->type1##_map[name] == nil && this->type2##_map[name] == nil) { \
-      this->type1##_map.erase(name);                                        \
-      this->type2##_map.erase(name);                                        \
-      this->self.unlock();                                                  \
-      return 0;                                                             \
-    }
-#endif
-
-#ifndef TriggerListeners
-  #define TriggerListeners(type, event_name, key)       \
-    if (this->type##_map[event_name] != nil) {          \
-      auto listeners = *(this->type##_map[event_name]); \
-      for(auto el : listeners){                         \
-        auto e = new EventData();                       \
-        e->name = new std::string(event_name);          \
-        e->key = el;                                    \
-        e->data = data;                                 \
-        this->event_queue->push(e);                     \
-        ++count;                                        \
-      }                                                 \
-    } else {                                            \
-      this->type##_map.erase(event_name);               \
-    }
-#endif
-
-#ifndef ClearEvent
-  #define ClearEvent(type, event_name)           \
-    if (this->type##_map[event_name] != nil) {   \
-      auto _list = this->type##_map[event_name]; \
-      _list->clear();                            \
-    }                                            \
-    this->type##_map.erase(event_name);
-#endif
-
-#ifndef ClearListener
-  #define ClearListener(type, event_name, handler)  \
-    if (this->type##_map[event_name] != nil) {      \
-      auto _list = this->type##_map[event_name];    \
-      _list->erase(std::remove(_list->begin(),      \
-         _list->end(), handler), _list->end());     \
-    } else {                                        \
-      this->type##_map.erase(event_name);           \
-    }
-#endif
-
-namespace E2{
+namespace E2 {
   /* a generic void pointer, typecasting is user-domain task */
   typedef void* Handle;
   /* signature of our thread function */
@@ -104,24 +32,28 @@ namespace E2{
       virtual void HandleEvent(E2::Handle, E2::Handle){}
       virtual ~EventHandler(){}
   };
+  /* a wrapper to store data */
+  class EventDataWrap{};
 
   typedef std::map<std::string, std::vector<EventCallbackHandle>*> EventsMap;
-  typedef std::map<std::string, std::vector<EventHandler*>*> HandlerInstance;
+  typedef std::map<std::string, std::vector<std::unique_ptr<EventHandler>>*> HandlerInstance;
   
-  typedef struct edata{
-    std::string *name;
+  struct EventData{
+    std::string name;
     EventCallbackHandle callback;
     EventHandler* instance;
     Handle *data;
-  }EventData;
+    std::shared_ptr<std::mutex> lock;
+    std::shared_ptr<EventDataWrap> ptr;
+  };
 
   class EventQueue{
     private:
       std::thread *thread;
       std::mutex closeFlag;
-      int exitFlag = 0;
+      int exitFlag;
     public:
-      std::vector<EventData*> events;
+      std::vector<EventData*> *events;
       std::mutex lock;
       EventQueue();
       void push(EventData* e);
@@ -129,6 +61,9 @@ namespace E2{
       void trigger();
       void join();
       bool isClosed();
+      int getExitFlag();
+      void setExitFlag(int);
+      void Stop();
       ~EventQueue();
   };
   class Loop{
@@ -143,23 +78,72 @@ namespace E2{
       Loop();
       void Listen(std::string event_name, EventCallbackHandle listener);
       void Listen(std::string event_name, EventHandler *instance);
+      /* for more extensible listener types */
+      template <typename Instance> 
+        void Listen(
+          std::string event_name,
+          Instance instance
+      ){
+        this->self.lock();
+        ListenCodeStub(instance, event_name, EventHandler)
+        auto cast = reinterpret_cast<EventHandler*>(instance);
+        this->instance_map[event_name]->push_back(
+            std::unique_ptr<EventHandler>(cast));
+        this->self.unlock();
+      }
+
       int Trigger(std::string event_name, Handle *data);
+      /* a template based event trigger for generic purpose */
+      template <typename Instance> 
+          bool Trigger (
+            Instance instance,
+            std::string event_name,
+            Handle *data
+      ) {
+        EventHandler* handler = reinterpret_cast<EventHandler*>(instance);
+        std::shared_ptr<EventDataWrap> ptr = std::make_shared<EventDataWrap>();
+        std::shared_ptr<std::mutex> shared_lock = std::make_shared<std::mutex>();
+        auto e = new EventData();
+        e->name = event_name;
+        e->instance = handler;
+        e->data = data;
+        e->ptr = ptr;
+        e->lock = shared_lock;
+        this->event_queue->push(e);
+        ptr.reset();
+        shared_lock.reset();
+        return true;
+      }
+      bool Trigger (
+        EventCallbackHandle callback,
+        std::string event_name,
+        Handle *data
+      ) {
+        std::shared_ptr<EventDataWrap> ptr = std::make_shared<EventDataWrap>();
+        std::shared_ptr<std::mutex> shared_lock = std::make_shared<std::mutex>();
+        auto e = new EventData();
+        e->name = event_name;
+        e->callback = callback;
+        e->data = data;
+        e->ptr = ptr;
+        e->lock = shared_lock;
+        this->event_queue->push(e);
+        ptr.reset();
+        shared_lock.reset();
+        return true;
+      }
       void Unregister(std::string event_name);
       void Unregister(std::string event_name, EventCallbackHandle listener);
       void Unregister(std::string event_name, EventHandler *instance);
       void UnregisterAll();
-      void Exit();
       void Join();
       void Freeze();
       bool Unfreeze();
       bool isAlive();
+      void Stop();
+      void StopSync();
       ~Loop();
   };
-  // Callback Return type
-  typedef struct cr{
-    int type;
-    Handle data;
-  }CallbackReturn;
-  void startThread(EventQueue*, std::mutex*, int*);
+  void startThread(EventQueue*, std::mutex*);
 }
 #endif /* E2_LOOP_H_ */

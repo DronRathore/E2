@@ -1,22 +1,30 @@
 #include <iostream>
 #include "../src/main.hpp"
+#include "../src/console.hpp"
 using namespace std;
 using namespace E2;
+
 Handle listener(Handle, Handle);
 
 class FsWrap : public E2::EventHandler {
-  private:
-    int identifier; /* inode, fd */
   public:
-    FsWrap(){
-      this->identifier = -1; /* init state */
-    }
     void HandleEvent(Handle event, Handle data){
       /* Trigger the events as they appear */
       E2::EventData *instance = (E2::EventData *)event;
+      /* if you are modifying the value of data then use the inbuilt lock */
+      instance->lock.get()->lock();
       /* switch(instance->name) {case "end": break;} */
-      cout << "File Event: " << *(instance->name) << endl;
-      clear_e2_event(instance)
+      if (data != nil) {
+        E2::log("File Event:", instance->name, *(std::string*)data);
+      }
+      int input;
+      E2::log("Input an integer:");
+      console::read(input);
+      E2::log("User input was", input);
+      /* don't forget to release the lock */
+      instance->lock.get()->unlock();
+      /* second parameter is the pointer type of data */
+      clear_e2_event(instance, std::string)
     }
     /*
       Event handlers to be overriden by extending class
@@ -25,9 +33,6 @@ class FsWrap : public E2::EventHandler {
     virtual void onEnd(){}
     virtual void onStart(){}
     virtual void onFlush(){}
-    ~FsWrap(){
-
-    }
 };
 
 int main(int argc, char* argv[]){
@@ -41,40 +46,39 @@ int main(int argc, char* argv[]){
   event_loop->Trigger("push", nil);
   /* If event is not present then its a noop */
   event_loop->Trigger("lol", nil);
-  // call all fs/net and other threads before this
-  // this is the end marker which will block the code
+
   auto FsQueue = new E2::Loop();
+  
   auto fsObject = new FsWrap();
   /* todo: Add thread pool */
-  /* Till then you can namespace events with inode values */
-  /* or fd in case of net connection */
-  FsQueue->Listen("onstart", fsObject);
-  /* you can have functions as well as EventHandler classes */
+  /* a generic to help extend the functionalities of an EventHandler*/
+
+  /* you can directly push an EventHandler in queue through this */
+  FsQueue->Trigger<FsWrap*>(fsObject, "onstart", nil);
   /* listening on the same event */
+  FsQueue->Listen<FsWrap*>("onend", fsObject);
+  /* you can have functions as well as EventHandler classes */
   FsQueue->Listen("onstart", &listener);
   FsQueue->Trigger("onstart", nil);
-  /* Exit method suspends the existing event queue thread
-    flushes all the events and event datas that are queued
-
-    event_loop->Exit();
-  */
-  FsQueue->Unregister("onstart");
+  
   int *sample = new int(0xfAAAAA);
-  /* None will be triggered */
   FsQueue->Trigger("onstart", (Handle*)sample);
-  FsQueue->Join();
-  event_loop->Exit();
-  if (event_loop->isAlive())
-    event_loop->Join();
+  std::string *str = new string("Bow down puny species!");
+  FsQueue->Trigger("onend", (Handle*)str);
+  E2::log("Stopping the thread");
+  FsQueue->StopSync();
+  E2::log("Other way of killing the loop is to execute delete");
+  /* clear you class instaces */
+  delete event_loop;
+  delete FsQueue;
+  delete fsObject;
   return 0;
 }
 
 Handle listener(Handle event, Handle data){
   E2::EventData *e = (E2::EventData *)event;
-  cout << "Event Triggered" << std::endl;
-  cout << "Event name=> " << *(e->name) << std::endl;
   if (data != nil){
-    cout << "The data is an integer: " << *((int*)data) <<endl;
+    E2::log("The data is an integer: ", *((int*)data));
   }
   /* 
     use the helper to clear event data if you want to clear
@@ -84,6 +88,6 @@ Handle listener(Handle event, Handle data){
   */
   // clear_e2_event_name(e) // delete event->name
   // clear_e2_event_obj(e) // delete event
-  clear_e2_event(e) // this call deletes data, name and event itself
+  clear_e2_event(e, int) // this call deletes data, name and event itself
   return nil;
 }

@@ -4,8 +4,10 @@
 
 #include <iostream>
 #include <thread>
+#include <algorithm>
 #include <chrono>
 #include "main.hpp"
+
 using namespace E2;
 using namespace std;
 
@@ -25,11 +27,12 @@ void Loop::Join(){
 
 void Loop::Listen(std::string event_name, EventCallbackHandle listener){
   this->self.lock();
-  auto hasEvent = this->event_map[event_name];
+  auto hasEvent = this->event_map[event_name]; 
   if (hasEvent == nil){
     /* event doesn't exists */
-    std::vector<EventCallbackHandle> *vec = new std::vector<EventCallbackHandle>();
-    this->event_map[event_name] = vec;
+    std::vector<EventCallbackHandle>
+      *vec = new std::vector<EventCallbackHandle>(); 
+    this->event_map[event_name] = vec;         
   }
   this->event_map[event_name]->push_back(listener);
   this->self.unlock();
@@ -37,13 +40,12 @@ void Loop::Listen(std::string event_name, EventCallbackHandle listener){
 
 void Loop::Listen(std::string event_name, E2::EventHandler *instance){
   this->self.lock();
-  auto hasEvent = this->instance_map[event_name];
-  if (hasEvent == nil){
-    /* event doesn't exists */
-    std::vector<E2::EventHandler*> *vec = new std::vector<E2::EventHandler*>();
-    this->instance_map[event_name] = vec;
+  if (!this->_isAlive){
+    this->self.unlock();
+    return;
   }
-  this->instance_map[event_name]->push_back(instance);
+  ListenCodeStub(instance, event_name, EventHandler)
+  this->instance_map[event_name]->push_back(std::unique_ptr<E2::EventHandler>(instance));
   this->self.unlock();
 }
 
@@ -58,9 +60,15 @@ int Loop::Trigger(std::string event_name, Handle *data){
   
   int count = 0;
   /* trigger all the function handler */
-  TriggerListeners(event, event_name, callback)
+  bool isInstance = false;
+  std::shared_ptr<EventDataWrap> ptr = std::make_shared<EventDataWrap>();
+  std::shared_ptr<std::mutex> shared_lock = std::make_shared<std::mutex>();
+  TriggerListeners(event, event_name, callback, el, el)
   /* trigger all instance handler */
-  TriggerListeners(instance, event_name, instance)
+  isInstance = true;
+  TriggerListeners(instance, event_name, instance, &el, (el.get()))
+  ptr.reset();
+  shared_lock.reset();
   this->self.unlock();
   return count;
 }
@@ -75,7 +83,13 @@ void Loop::Unregister(std::string event_name){
 /* Unregister from events_map of static functions */
 void Loop::Unregister(std::string event_name, EventCallbackHandle handle){
   this->self.lock();
-  ClearListener(event, event_name, handle)
+  if (this->event_map[event_name] != nil) {      
+    auto _list = this->event_map[event_name];    
+    _list->erase(std::remove(_list->begin(),      
+       _list->end(), handle), _list->end());     
+  } else {
+    this->event_map.erase(event_name);
+  }
   this->self.unlock();
 }
 
@@ -128,30 +142,71 @@ bool Loop::isAlive(){
   return _isAlive;
 }
 
-void Loop::Exit(){
+void Loop::Stop(){
   this->self.lock();
   this->_isAlive = false;
-  if (!this->event_queue->isClosed()){
-    delete this->event_queue;
-    this->event_queue = nil;
-  }
+  this->event_queue->Stop();
+  this->self.unlock();
+}
+
+void Loop::StopSync(){
+  this->self.lock();
+  this->_isAlive = false;
+  this->event_queue->Stop();
+  this->event_queue->join();
   this->self.unlock();
 }
 
 Loop::~Loop(){
   if (this->event_queue != nil){
-    delete this->event_queue;
+    this->event_queue->Stop();
+    this->event_queue->join();
   }
   if (this->event_map.empty() == false){
+    auto iterator = this->event_map.begin();
+    do {
+      iterator->second->clear();
+      delete iterator->second;
+      ++iterator;
+    } while(iterator != this->event_map.end());
     this->event_map.clear();
   }
+  if (this->instance_map.empty() == false){
+    auto iterator = this->instance_map.begin();
+    do {
+      auto vector_iterator = iterator->second->begin();
+      
+      do {
+        vector_iterator->release();
+        ++vector_iterator;
+      } while(vector_iterator != iterator->second->end());
+
+      iterator->second->clear();
+      delete iterator->second;
+      ++iterator;
+    } while(iterator != this->instance_map.end());
+
+    this->instance_map.clear();
+  }
+  delete this->event_queue;
 }
 
 EventQueue::EventQueue(){
-  this->events = *(new std::vector<EventData*>());
-  this->thread = new std::thread(startThread, this, &this->closeFlag, &this->exitFlag);
+  this->exitFlag = 0;
+  this->events = new std::vector<EventData*>();
+  this->thread = new std::thread(startThread, this, &this->closeFlag);
 }
 
+void EventQueue::Stop(){
+  this->setExitFlag(THREAD_EXITED);
+}
+
+int EventQueue::getExitFlag(){
+  return this->exitFlag;
+}
+void EventQueue::setExitFlag(int flag){
+  this->exitFlag = flag;
+}
 bool EventQueue::isClosed (){
   if (this->thread == nil)
     return true;
@@ -163,44 +218,45 @@ bool EventQueue::isClosed (){
 
 void EventQueue::push(EventData *e){
   this->lock.lock();
-  this->events.push_back(e);
+  this->events->push_back(e);
   this->lock.unlock();
 }
 
 void EventQueue::join(){
-  this->thread->join();
+  if (this->thread->joinable())
+    this->thread->join();
 }
 std::mutex* EventQueue::getLock(){
   return &this->lock;
 }
 
 EventQueue::~EventQueue(){
-  if (this->isClosed()){
-    return;
+  if (this->getExitFlag() != THREAD_EXITED){
+    this->closeFlag.lock();
+    this->setExitFlag(THREAD_EXITED);
+    this->closeFlag.unlock();
   }
+  if (this->thread->joinable())
+    this->thread->join();
   this->lock.lock();
-  EventData *ptr;
-  auto size = this->events.size();
-  unsigned int index = 0;
-  for(;index < size; index++){
-    if (this->events[index]->data != nil) {
-      delete this->events[index]->data;
-    }
-    delete this->events[index]->name;
-    delete this->events[index];
-  }
-  /* prepare to send signal to the spinlock executor */
   this->closeFlag.lock();
-  this->exitFlag = 1;
-  this->closeFlag.unlock();
-  /* wait for confirmation */
-  this->closeFlag.lock();
-  /* confirm exit, if not then let process handle it */
-  if (this->exitFlag == THREAD_EXITED){
-    delete this->thread;
+  auto size = this->events->size();
+  auto index = this->events->begin();
+  if (size > 0){
+    do {
+      if ( (*index)->data != nullptr)
+        delete (*index)->data;
+
+      if (*index != nil) {
+        delete *index;
+      }
+      ++index;
+    } while(index != this->events->end());
   }
   this->closeFlag.unlock();
-  this->events.clear();
+  this->events->clear();
+  delete this->events;
+  delete this->thread;
   this->lock.unlock();
 }
 /* Spinlock strategy
@@ -209,35 +265,43 @@ EventQueue::~EventQueue(){
 *  in the queue i.e. thread will be in a pseudo
 *  idle state. */
 
-void E2::startThread(EventQueue *e, std::mutex *closeFlag, int *exitFlag){
+void E2::startThread(EventQueue *e, std::mutex *closeFlag){
+  int eFlag = 0;
   while(true){
-    e->getLock()->lock();
     /* add a safe thread exit trigger */
-    closeFlag->lock();
-    if ((*exitFlag) == 1){
-      *exitFlag = THREAD_EXITED;
-      e->getLock()->unlock();
-      closeFlag->unlock();
-      break;
+    if(closeFlag->try_lock()){
+      if (e->getExitFlag() == THREAD_EXITED){
+        if (e->events->empty()){
+          eFlag = THREAD_EXITED;
+          break;
+        }
+      }
+    }
+    if(e->getLock()->try_lock()){
+      if (!e->events->empty()){
+        /* we have a new entry */
+        auto event = (*(e->events))[0];
+        /* a function handler */
+        if (event->instance == nil){
+          event->callback(event, event->data);
+        } else {
+          /* a EventHandler class handler */
+          event->instance->HandleEvent(event, event->data);
+        }
+        e->events->erase(e->events->begin());
+      }
     }
     closeFlag->unlock();
-
-    if (!e->events.empty()){
-      /* we have a new entry */
-      auto event = e->events[0];
-      /* a function handler */
-      if (event->instance == nil){
-        event->callback(event, event->data);
-      } else {
-        /* a EventHandler class handler */
-        event->instance->HandleEvent(event, event->data);
-      }
-      e->events.erase(e->events.begin());
-    }
-    e->getLock()->unlock();
+    if (eFlag != THREAD_EXITED)
+      e->getLock()->unlock();
     /* for a 2.1Ghz CPU, 2 cycles per nanoseconds */
     /* also thread sleep are timers and are not true */
     /* timers in nature */
     std::this_thread::sleep_for(std::chrono::nanoseconds(1));
   }
+  if (eFlag == THREAD_EXITED){
+    closeFlag->unlock();
+    e->getLock()->unlock();
+  }
+  return;
 }
